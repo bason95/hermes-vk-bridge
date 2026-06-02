@@ -35,6 +35,7 @@ VK_AUTO_YOLO = os.environ.get('VK_HERMES_AUTO_YOLO', '0').strip().lower() not in
 
 MEDIA_RE = re.compile(r'MEDIA:([^\s]+)')
 ALLOW_ALL_TRUE = {'1', 'true', 'yes', 'on', 'all'}
+APPROVE_RE = re.compile(r'^(?:/approve|approve|/код|код|/code|code)\s+(.+?)\s*$', re.IGNORECASE)
 
 
 def log(msg):
@@ -83,23 +84,40 @@ def _parse_allowed_users(raw):
     return users
 
 
-def is_allowed(env, peer_id, from_id=None):
+def is_allowed(env, peer_id, from_id=None, state=None):
     """Default-deny access control for standalone bridge.
 
     VK community messages can trigger Hermes tool use, including terminal/file
     access in full mode. Therefore a public repo must not default to answering
     every VK user. Set VK_ALLOWED_USERS to comma-separated numeric VK user IDs,
-    or explicitly set VK_ALLOW_ALL_USERS=1 for public/demo bots.
+    set VK_APPROVAL_CODE and have users send `/approve <code>`, or explicitly
+    set VK_ALLOW_ALL_USERS=1 for public/demo bots.
     """
     if _truthy(env.get('VK_ALLOW_ALL_USERS')):
         return True
-    allowed = _parse_allowed_users(env.get('VK_ALLOWED_USERS'))
-    if not allowed:
-        return False
     candidates = {int(peer_id)}
     if from_id:
         candidates.add(int(from_id))
-    return bool(candidates & allowed)
+
+    allowed = _parse_allowed_users(env.get('VK_ALLOWED_USERS'))
+    if candidates & allowed:
+        return True
+
+    approved = set(int(x) for x in (state or {}).get('approved_users', []) if str(x).strip().lstrip('-').isdigit())
+    return bool(candidates & approved)
+
+
+def parse_approval_code(text):
+    match = APPROVE_RE.match(text or '')
+    return match.group(1).strip() if match else None
+
+
+def approve_user(state, peer_id, from_id=None):
+    approved = set(int(x) for x in state.get('approved_users', []) if str(x).strip().lstrip('-').isdigit())
+    approved.add(int(peer_id))
+    if from_id:
+        approved.add(int(from_id))
+    state['approved_users'] = sorted(approved)
 
 
 def vk_api(method,payload,token):
@@ -236,14 +254,15 @@ def handle_command(text,peer_id):
 
 def load_state():
     if not STATE_PATH.exists():
-        return {'seen_ids': [], 'trace_peers': []}
+        return {'seen_ids': [], 'trace_peers': [], 'approved_users': []}
     try:
         st = json.loads(STATE_PATH.read_text(encoding='utf-8'))
         st.setdefault('seen_ids', [])
         st.setdefault('trace_peers', [])
+        st.setdefault('approved_users', [])
         return st
     except Exception:
-        return {'seen_ids': [], 'trace_peers': []}
+        return {'seen_ids': [], 'trace_peers': [], 'approved_users': []}
 
 
 def save_state(st):
@@ -530,12 +549,23 @@ def main():
                 text=(msg.get('text') or '').strip()
                 if peer_id<=0:
                     continue
-                if not is_allowed(env, peer_id, from_id):
-                    log(f'denied peer={peer_id} from={from_id} msg_id={msg_id}: configure VK_ALLOWED_USERS or VK_ALLOW_ALL_USERS=1')
+                raw_cmd = (text or '').strip().lower()
+                submitted_code = parse_approval_code(text)
+                if not is_allowed(env, peer_id, from_id, st):
+                    expected_code = (env.get('VK_APPROVAL_CODE') or '').strip()
+                    if submitted_code and expected_code and submitted_code == expected_code:
+                        approve_user(st, peer_id, from_id)
+                        save_state(st)
+                        send_text(token, peer_id, '✅ Доступ одобрен. Теперь можно писать запросы Hermes.')
+                    elif submitted_code:
+                        send_text(token, peer_id, '❌ Неверный код доступа.')
+                    elif expected_code:
+                        send_text(token, peer_id, '🔒 Доступ закрыт. Отправь: /approve <код доступа>.')
+                    else:
+                        send_text(token, peer_id, '🔒 Доступ закрыт. Администратор должен добавить твой VK ID в VK_ALLOWED_USERS.')
+                    log(f'denied peer={peer_id} from={from_id} msg_id={msg_id}: not approved')
                     mark_read(token, peer_id)
                     continue
-
-                raw_cmd = (text or '').strip().lower()
                 if raw_cmd in ('/trace on', 'trace on'):
                     peers = set(int(x) for x in st.get('trace_peers', []))
                     peers.add(peer_id)

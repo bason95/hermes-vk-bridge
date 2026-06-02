@@ -58,8 +58,9 @@ VK_ENV_PATH=/path/to/vk_bridge.env python3 scripts/hermes_vk_bridge.py
 Important variables:
 
 - `VK_GROUP_TOKEN` — required VK community token.
-- `VK_ALLOWED_USERS` — required by default; comma-separated numeric VK user IDs allowed to use the bot.
-- `VK_ALLOW_ALL_USERS=1` — explicit opt-in for public/demo bots. Without this and without `VK_ALLOWED_USERS`, the standalone bridge ignores messages.
+- `VK_ALLOWED_USERS` — comma-separated numeric VK user IDs allowed to use the bot.
+- `VK_APPROVAL_CODE` — optional invite code; unknown users can send `/approve <code>` in VK and become approved persistently.
+- `VK_ALLOW_ALL_USERS=1` — explicit opt-in for public/demo bots. Without this, without `VK_ALLOWED_USERS`, and without successful approval code, the standalone bridge ignores messages.
 - `HERMES_BIN` — Hermes executable, default `hermes`.
 - `VK_HERMES_TIMEOUT_SEC` — default `420`.
 - `VK_HERMES_QUICK_TOOLSETS` — default `clarify`.
@@ -98,7 +99,7 @@ standalone mode is currently the most battle-tested path.
 ## Security notes
 
 - Do not commit `vk_bridge.env` or VK tokens.
-- The standalone bridge is default-deny: set `VK_ALLOWED_USERS` for trusted users or explicitly `VK_ALLOW_ALL_USERS=1` for public/demo bots.
+- The standalone bridge is default-deny: set `VK_ALLOWED_USERS` for trusted users, set a private `VK_APPROVAL_CODE` for invite-code onboarding, or explicitly `VK_ALLOW_ALL_USERS=1` for public/demo bots.
 - Keep `VK_HERMES_AUTO_YOLO=0` unless every allowed VK user is trusted to trigger local terminal/file operations.
 - Use Hermes platform allowlists (`VK_ALLOWED_USERS` / `VK_ALLOW_ALL_USERS`) if you adapt the native plugin for production.
 - Treat any GitHub/VK token pasted into chat as compromised and revoke it after use.

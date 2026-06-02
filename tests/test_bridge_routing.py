@@ -59,3 +59,12 @@ def test_access_control_allows_explicit_user():
 def test_access_control_allow_all_requires_explicit_opt_in():
     bridge = load_bridge()
     assert bridge.is_allowed({"VK_ALLOW_ALL_USERS": "1"}, peer_id=999, from_id=999) is True
+
+
+def test_approval_code_parser_and_state_approval():
+    bridge = load_bridge()
+    assert bridge.parse_approval_code('/approve VK-1234') == 'VK-1234'
+    state = {"approved_users": []}
+    bridge.approve_user(state, peer_id=123, from_id=456)
+    assert bridge.is_allowed({}, peer_id=123, from_id=456, state=state) is True
+    assert bridge.is_allowed({}, peer_id=789, from_id=789, state=state) is False
