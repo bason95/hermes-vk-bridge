@@ -1,0 +1,15 @@
+[Unit]
+Description=Hermes VK Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=VK_ENV_PATH=%h/.hermes/scripts/vk_bridge.env
+WorkingDirectory=%h/hermes-vk-bridge
+ExecStart=/usr/bin/python3 %h/hermes-vk-bridge/scripts/hermes_vk_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

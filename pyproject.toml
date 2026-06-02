@@ -1,0 +1,10 @@
+[project]
+name = "hermes-vk-bridge"
+version = "0.1.0"
+description = "VKontakte bridge for Hermes Agent"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
