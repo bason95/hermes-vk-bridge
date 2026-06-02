@@ -25,12 +25,16 @@ POLL_SEC = 3
 # housing-price comparison). Keep VK bridge timeout above the CLI/tool budget so
 # valid answers are not killed a few seconds before completion.
 HERMES_TIMEOUT_SEC = int(os.environ.get('VK_HERMES_TIMEOUT_SEC', '420'))
-# Fast default for plain chat. Deep/tool/media tasks are routed to FULL_TOOLSETS.
-VK_QUICK_TOOLSETS = os.environ.get('VK_HERMES_QUICK_TOOLSETS', os.environ.get('VK_HERMES_TOOLSETS', 'clarify')).strip()
+# Use one VK Hermes session by default. Earlier quick/full split made Dashboard show
+# two VK dialog windows and felt like duplicate conversations. In single-session
+# mode every VK request starts with the full tool schema, avoiding toolset snapshot
+# problems without creating a second session lane.
 VK_FULL_TOOLSETS = os.environ.get(
     'VK_HERMES_FULL_TOOLSETS',
     'web,browser,terminal,file,code_execution,vision,image_gen,tts,skills,todo,memory,session_search,clarify,delegation,cronjob,messaging'
 ).strip()
+VK_SINGLE_SESSION = os.environ.get('VK_HERMES_SINGLE_SESSION', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+VK_QUICK_TOOLSETS = os.environ.get('VK_HERMES_QUICK_TOOLSETS', os.environ.get('VK_HERMES_TOOLSETS', 'clarify')).strip()
 VK_AUTO_YOLO = os.environ.get('VK_HERMES_AUTO_YOLO', '0').strip().lower() not in ('0', 'false', 'no', 'off')
 
 MEDIA_RE = re.compile(r'(?:MEDIA:|(?:🖼️\s*)?Image:\s*)(/[^\s]+)')
@@ -172,22 +176,20 @@ def split_text(text):
 
 
 def select_toolsets(text, attachments=None):
+    if VK_SINGLE_SESSION:
+        return VK_FULL_TOOLSETS, 'single'
     if attachments or wants_full_hermes(text):
         return VK_FULL_TOOLSETS, 'full'
     return VK_QUICK_TOOLSETS, 'quick'
 
 
-def ask_hermes(peer_id, text, toolsets=None, mode='quick'):
-    # Keep VK sessions small. The old permanent `vk_<peer>` session grew large and
-    # made even simple research prompts time out. Daily sessions preserve short
-    # context without dragging weeks of transcript into every oneshot call.
-    #
-    # IMPORTANT: toolsets are snapshotted when a Hermes session is created. If a
-    # quick `clarify` request and a later full coding/request share the same
-    # session name, the full request can inherit the old clarify-only tool schema
-    # and the model truthfully says it has no terminal/file tools. Split quick and
-    # full sessions so full tool runs are always born with full tool access.
-    mode_suffix = 'full' if mode == 'full' else 'quick'
+def ask_hermes(peer_id, text, toolsets=None, mode='single'):
+    # Keep VK sessions small: daily sessions preserve short context without
+    # dragging weeks of transcript into every oneshot call. Default is one VK
+    # lane per peer/day, with full tool schema from the start, so Dashboard shows
+    # one dialog window and later tool-heavy requests do not inherit a light
+    # clarify-only schema.
+    mode_suffix = 'vk' if VK_SINGLE_SESSION else ('full' if mode == 'full' else 'quick')
     session=f'vk_{peer_id}_{time.strftime("%Y%m%d")}_{mode_suffix}'
     cmd=[HERMES_BIN]
     if VK_AUTO_YOLO:
@@ -227,28 +229,24 @@ def handle_command(text,peer_id):
     if t in ('/help','help'):
         return ('Команды: /help /new /status /trace on /trace off\n'
                 'Обычный текст отправляется в Hermes.\n'
-                'VK работает в гибридном режиме: быстрый чат идет через light-toolset, '
-                'поиск/код/файлы/скрины/интеграции автоматически идут через full-toolset как в Telegram.')
+                'VK работает в одном диалоговом окне. По умолчанию включён полный набор инструментов, как в Telegram; /trace нужен только для подробного хода глубоких задач.')
     if t in ('/status','status'):
         day = time.strftime("%Y%m%d")
         return (f'VK polling bridge: online\npeer_id: {peer_id}\n'
-                f'quick_session: vk_{peer_id}_{day}_quick\n'
-                f'full_session: vk_{peer_id}_{day}_full\n'
-                f'quick_toolsets: {VK_QUICK_TOOLSETS or "default"}\n'
-                f'full_toolsets: {VK_FULL_TOOLSETS}\n'
+                f'session: vk_{peer_id}_{day}_vk\n'
+                f'toolsets: {VK_FULL_TOOLSETS}\n'
+                f'single_session: {VK_SINGLE_SESSION}\n'
                 f'auto_yolo: {VK_AUTO_YOLO}\n'
-                'routing: hybrid')
+                'routing: single')
     if t in ('/new','new'):
-        # Reset both VK lanes. Quick and full use separate sessions because their
-        # tool schemas differ; resetting one while leaving the other stale makes
-        # the bridge feel inconsistent.
-        for suffix in ('quick', 'full'):
+        session_suffixes = ('vk',) if VK_SINGLE_SESSION else ('quick', 'full')
+        for suffix in session_suffixes:
             cmd=[HERMES_BIN]
             if VK_AUTO_YOLO:
                 cmd.append('--yolo')
             cmd += ['-c',f'vk_{peer_id}_{time.strftime("%Y%m%d")}_{suffix}', '-z','/new']
             subprocess.run(cmd,capture_output=True,text=True,timeout=60)
-        return 'Новый контекст создан для quick и full режимов. Можешь писать следующий запрос.'
+        return 'Новый контекст VK создан. Можешь писать следующий запрос.'
     return None
 
 
@@ -585,7 +583,6 @@ def main():
                 prompt = build_prompt(text, attachments)
                 toolsets, mode = select_toolsets(text, attachments)
                 trace_now = trace_enabled(st, peer_id) or is_deep_task(text)
-                service_status_now = (mode == 'full' or wants_service_status(text)) and not trace_now
 
                 if trace_now:
                     preview = text[:120] if text else f'{len(attachments)} вложений'
@@ -593,7 +590,7 @@ def main():
                     send_text(token, peer_id, f'🧰 Режим: {mode}')
                 send_typing(token, peer_id)
                 started = time.time()
-                if trace_now or service_status_now:
+                if trace_now:
                     send_text(token, peer_id, '🧠 Обрабатываю запрос...')
 
                 reply=handle_command(text,peer_id)

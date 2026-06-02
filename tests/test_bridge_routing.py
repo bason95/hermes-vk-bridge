@@ -11,22 +11,23 @@ def load_bridge():
     return mod
 
 
-def test_simple_chat_uses_quick_toolset():
+def test_simple_chat_uses_single_full_toolset_by_default():
     bridge = load_bridge()
     toolsets, mode = bridge.select_toolsets("привет")
-    assert mode == "quick"
-    assert toolsets == "clarify"
+    assert mode == "single"
+    assert "terminal" in toolsets.split(",")
+    assert "file" in toolsets.split(",")
 
 
 def test_install_request_uses_full_toolset_with_terminal():
     bridge = load_bridge()
     toolsets, mode = bridge.select_toolsets("Давай поставим crawl4ai")
-    assert mode == "full"
+    assert mode == "single"
     assert "terminal" in toolsets.split(",")
     assert "file" in toolsets.split(",")
 
 
-def test_full_and_quick_sessions_are_separate(monkeypatch):
+def test_single_session_uses_one_vk_suffix(monkeypatch):
     bridge = load_bridge()
     captured = []
 
@@ -38,6 +39,29 @@ def test_full_and_quick_sessions_are_separate(monkeypatch):
             return "OK", ""
 
     monkeypatch.setattr(bridge.subprocess, "Popen", DummyProc)
+    assert bridge.ask_hermes(123, "hello", toolsets="clarify", mode="quick") == "OK"
+    assert bridge.ask_hermes(123, "code", toolsets=bridge.VK_FULL_TOOLSETS, mode="full") == "OK"
+    assert captured[0][captured[0].index("-c") + 1].endswith("_vk")
+    assert captured[1][captured[1].index("-c") + 1].endswith("_vk")
+
+
+def test_quick_full_split_is_available_as_opt_out(monkeypatch):
+    bridge = load_bridge()
+    bridge.VK_SINGLE_SESSION = False
+    captured = []
+
+    class DummyProc:
+        returncode = 0
+        def __init__(self, cmd, **kwargs):
+            captured.append(cmd)
+        def communicate(self, timeout=None):
+            return "OK", ""
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", DummyProc)
+    assert bridge.select_toolsets("привет") == ("clarify", "quick")
+    toolsets, mode = bridge.select_toolsets("Давай поставим crawl4ai")
+    assert mode == "full"
+    assert "terminal" in toolsets.split(",")
     assert bridge.ask_hermes(123, "hello", toolsets="clarify", mode="quick") == "OK"
     assert bridge.ask_hermes(123, "code", toolsets=bridge.VK_FULL_TOOLSETS, mode="full") == "OK"
     assert captured[0][captured[0].index("-c") + 1].endswith("_quick")
