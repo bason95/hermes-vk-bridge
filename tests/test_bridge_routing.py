@@ -68,3 +68,10 @@ def test_approval_code_parser_and_state_approval():
     bridge.approve_user(state, peer_id=123, from_id=456)
     assert bridge.is_allowed({}, peer_id=123, from_id=456, state=state) is True
     assert bridge.is_allowed({}, peer_id=789, from_id=789, state=state) is False
+
+
+def test_media_regex_accepts_cli_image_output():
+    bridge = load_bridge()
+    text = 'Готово\n\n🖼️ Image: /tmp/smurf_breakdance.png'
+    assert bridge.MEDIA_RE.findall(text) == ['/tmp/smurf_breakdance.png']
+    assert bridge.MEDIA_RE.sub('', text).strip() == 'Готово'

@@ -33,7 +33,7 @@ VK_FULL_TOOLSETS = os.environ.get(
 ).strip()
 VK_AUTO_YOLO = os.environ.get('VK_HERMES_AUTO_YOLO', '0').strip().lower() not in ('0', 'false', 'no', 'off')
 
-MEDIA_RE = re.compile(r'MEDIA:([^\s]+)')
+MEDIA_RE = re.compile(r'(?:MEDIA:|(?:🖼️\s*)?Image:\s*)(/[^\s]+)')
 ALLOW_ALL_TRUE = {'1', 'true', 'yes', 'on', 'all'}
 APPROVE_RE = re.compile(r'^(?:/approve|approve|/код|код|/code|code)\s+(.+?)\s*$', re.IGNORECASE)
 
