@@ -19,7 +19,7 @@ Hermes CLI one-shot sessions, and replies via `messages.send`.
   `vk_<peer_id>_<YYYYMMDD>_quick` and `vk_<peer_id>_<YYYYMMDD>_full`.
   This prevents a clarify-only session from accidentally reusing a restricted
   tool schema for later coding/tool tasks.
-- Optional `--yolo` mode for Hermes CLI calls.
+- Optional `--yolo` mode for Hermes CLI calls (disabled by default for safety).
 - VK attachments are downloaded locally and passed to Hermes as file paths.
 - Final answers containing `MEDIA:/path/to/file` are uploaded back to VK as
   photos or docs.
@@ -58,11 +58,13 @@ VK_ENV_PATH=/path/to/vk_bridge.env python3 scripts/hermes_vk_bridge.py
 Important variables:
 
 - `VK_GROUP_TOKEN` — required VK community token.
+- `VK_ALLOWED_USERS` — required by default; comma-separated numeric VK user IDs allowed to use the bot.
+- `VK_ALLOW_ALL_USERS=1` — explicit opt-in for public/demo bots. Without this and without `VK_ALLOWED_USERS`, the standalone bridge ignores messages.
 - `HERMES_BIN` — Hermes executable, default `hermes`.
 - `VK_HERMES_TIMEOUT_SEC` — default `420`.
 - `VK_HERMES_QUICK_TOOLSETS` — default `clarify`.
 - `VK_HERMES_FULL_TOOLSETS` — default full Hermes tool stack.
-- `VK_HERMES_AUTO_YOLO` — default enabled (`1`).
+- `VK_HERMES_AUTO_YOLO` — default disabled (`0`). Set to `1` only for trusted users/environments.
 
 ## Running with watchdog
 
@@ -96,10 +98,10 @@ standalone mode is currently the most battle-tested path.
 ## Security notes
 
 - Do not commit `vk_bridge.env` or VK tokens.
-- Use `VK_ALLOWED_USERS` / Hermes platform allowlists if you adapt the native
-  plugin for production.
-- `VK_HERMES_AUTO_YOLO=1` skips Hermes command approvals. Disable it if you need
-  manual approval prompts.
+- The standalone bridge is default-deny: set `VK_ALLOWED_USERS` for trusted users or explicitly `VK_ALLOW_ALL_USERS=1` for public/demo bots.
+- Keep `VK_HERMES_AUTO_YOLO=0` unless every allowed VK user is trusted to trigger local terminal/file operations.
+- Use Hermes platform allowlists (`VK_ALLOWED_USERS` / `VK_ALLOW_ALL_USERS`) if you adapt the native plugin for production.
+- Treat any GitHub/VK token pasted into chat as compromised and revoke it after use.
 
 ## License
 

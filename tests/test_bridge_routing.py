@@ -42,3 +42,20 @@ def test_full_and_quick_sessions_are_separate(monkeypatch):
     assert bridge.ask_hermes(123, "code", toolsets=bridge.VK_FULL_TOOLSETS, mode="full") == "OK"
     assert captured[0][captured[0].index("-c") + 1].endswith("_quick")
     assert captured[1][captured[1].index("-c") + 1].endswith("_full")
+
+
+def test_access_control_is_default_deny():
+    bridge = load_bridge()
+    assert bridge.is_allowed({}, peer_id=123, from_id=123) is False
+
+
+def test_access_control_allows_explicit_user():
+    bridge = load_bridge()
+    env = {"VK_ALLOWED_USERS": "111, 222"}
+    assert bridge.is_allowed(env, peer_id=123, from_id=222) is True
+    assert bridge.is_allowed(env, peer_id=123, from_id=333) is False
+
+
+def test_access_control_allow_all_requires_explicit_opt_in():
+    bridge = load_bridge()
+    assert bridge.is_allowed({"VK_ALLOW_ALL_USERS": "1"}, peer_id=999, from_id=999) is True

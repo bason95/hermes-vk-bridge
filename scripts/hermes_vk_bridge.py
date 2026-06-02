@@ -31,9 +31,10 @@ VK_FULL_TOOLSETS = os.environ.get(
     'VK_HERMES_FULL_TOOLSETS',
     'web,browser,terminal,file,code_execution,vision,image_gen,tts,skills,todo,memory,session_search,clarify,delegation,cronjob,messaging'
 ).strip()
-VK_AUTO_YOLO = os.environ.get('VK_HERMES_AUTO_YOLO', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+VK_AUTO_YOLO = os.environ.get('VK_HERMES_AUTO_YOLO', '0').strip().lower() not in ('0', 'false', 'no', 'off')
 
 MEDIA_RE = re.compile(r'MEDIA:([^\s]+)')
+ALLOW_ALL_TRUE = {'1', 'true', 'yes', 'on', 'all'}
 
 
 def log(msg):
@@ -59,10 +60,46 @@ def load_env():
             k, v = line.split('=', 1)
             vals[k.strip()] = v.strip().strip('"').strip("'")
     # Environment variables override file values.
-    for key in ('VK_GROUP_TOKEN',):
-        if os.environ.get(key):
-            vals[key] = os.environ[key]
+    for key, value in os.environ.items():
+        if key.startswith('VK_'):
+            vals[key] = value
     return vals
+
+
+def _truthy(value):
+    return str(value or '').strip().lower() in ALLOW_ALL_TRUE
+
+
+def _parse_allowed_users(raw):
+    users = set()
+    for part in str(raw or '').replace(';', ',').split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            users.add(int(part))
+        except ValueError:
+            log(f'ignoring invalid VK_ALLOWED_USERS entry: {part!r}')
+    return users
+
+
+def is_allowed(env, peer_id, from_id=None):
+    """Default-deny access control for standalone bridge.
+
+    VK community messages can trigger Hermes tool use, including terminal/file
+    access in full mode. Therefore a public repo must not default to answering
+    every VK user. Set VK_ALLOWED_USERS to comma-separated numeric VK user IDs,
+    or explicitly set VK_ALLOW_ALL_USERS=1 for public/demo bots.
+    """
+    if _truthy(env.get('VK_ALLOW_ALL_USERS')):
+        return True
+    allowed = _parse_allowed_users(env.get('VK_ALLOWED_USERS'))
+    if not allowed:
+        return False
+    candidates = {int(peer_id)}
+    if from_id:
+        candidates.add(int(from_id))
+    return bool(candidates & allowed)
 
 
 def vk_api(method,payload,token):
@@ -489,8 +526,13 @@ def main():
                 if msg_id<=0 or seen(st,msg_id):
                     continue
                 peer_id=int(msg.get('peer_id') or 0)
+                from_id=int(msg.get('from_id') or peer_id or 0)
                 text=(msg.get('text') or '').strip()
                 if peer_id<=0:
+                    continue
+                if not is_allowed(env, peer_id, from_id):
+                    log(f'denied peer={peer_id} from={from_id} msg_id={msg_id}: configure VK_ALLOWED_USERS or VK_ALLOW_ALL_USERS=1')
+                    mark_read(token, peer_id)
                     continue
 
                 raw_cmd = (text or '').strip().lower()
